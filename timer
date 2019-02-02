@@ -1,0 +1,197 @@
+#!/usr/bin/env ruby
+
+# This program requires Dunst (https://dunst-project.org/), which
+# provides the `notify-send` command.
+
+# help_message :: void -> string
+def help_message
+  <<~MSG
+  timer: sleep a while, then send a notification via `notify-send`.
+
+  To specify the delay time, provide arguments in the form
+
+  [0-9]+[dhms]
+
+  Here, `d` stands for days, `h` for hours, `m` for minutes, and `s` for
+  seconds. If no unit is given, `s` will be assumed.
+
+  If you provide multiple time-delay arguments, their values will accrue.
+  So you can delay 90 seconds either with `90s` or `1m 30s`.
+
+  You can also provide a message and a title to use for the notification.
+  The first argument given that does not look like a time-delay argument
+  will be used for the message. The second will be used for the title.
+  Both the message and title are optional. If neither are given, "#{default_title}"
+  will be used as the title, and the message will state the delay duration.
+
+  The notification will be sent via `notify-send`. If you'd like to run a
+  custom command instead, you can specify that with the `-c` flag, e.g.,
+  `-c "path/to/command"`. Information about the timer will be passed to
+  the command via standard input.
+
+  Examples:
+    timer 5m Tea
+    timer 1h 10m Laundry
+    timer 45 "Fresh is best" Pasta
+    timer 30d "Up 30 days" -c "~/bin/post_uptime_notice"
+  MSG
+end
+
+# set :: [string] -> void
+def set(args)
+  conf = parse_args(args)
+  add_defaults!(conf)
+
+  pid = fork do
+    system("sleep #{conf[:delay]} ; #{conf[:command]}")
+  end
+  puts "[#{pid}] Set timer for #{conf[:time]}."
+end
+
+# parse_args :: [string] -> conf
+# conf = (hash) will contain these keys:
+#   :delay = (int) the number of seconds to sleep
+#   :time = (string) e.g., "5 seconds"
+#   :title = string?
+#   :message = string?
+#   :command = (string?) the command to run after the delay
+def parse_args(args)
+  delay = 0
+  title = nil
+  message = nil
+  command = nil
+
+  time_regex = Regexp.new("^([0-9]+)([#{time_units.keys.collect { |key| key.to_s }.join}])?$", Regexp::IGNORECASE)
+
+  i = 0
+  while (i < args.length)
+    arg = args[i]
+
+    if ((arg.downcase == '-h') || (arg.downcase == '--help'))
+      puts help_message
+      exit
+    elsif ((arg.downcase == '-c') || (arg.downcase == '--command'))
+      command = args[(i + 1)]
+      i += 1
+    elsif (p = arg.match(time_regex))
+      if ((p[2].nil?) || (p[2].downcase == 's'))
+        delay += p[1].to_i * time_units[:s][:mult]
+      else
+        delay += p[1].to_i * time_units[p[2].downcase.to_sym][:mult]
+      end
+    elsif (message.nil?)
+      message = arg
+    else
+      title = arg
+    end
+
+    i += 1
+  end
+
+  return {
+    :delay => delay,
+    :title => title,
+    :message => message,
+    :command => command,
+  }
+end
+
+# add_defaults! :: conf -> void
+# conf = see return for `parse_args`. It will be changed in place.
+# Values that were nil will be filled, and one key will be added:
+#   :time => (string) e.g., "1 minute, 30 seconds"
+def add_defaults!(conf)
+  if (conf[:delay] == 0)
+    conf[:delay] = default_delay
+  end
+
+  conf[:time] = time_message(conf[:delay])
+
+  if (conf[:title].nil?)
+    conf[:title] = default_title
+  end
+
+  if (conf[:message].nil?)
+    conf[:message] = conf[:time]
+  end
+
+  if (conf[:command].nil?)
+    conf[:command] = default_command(conf[:title], conf[:message])
+  else
+    conf[:command] = custom_command(conf)
+  end
+end
+
+# default_delay :: void -> int
+def default_delay
+  5
+end
+
+# default_title :: void -> string
+def default_title
+  "Timer"
+end
+
+# time_units :: void -> hash
+def time_units
+  {
+    :d => {
+      :desc => "day",
+      :mult => (60 * 60 * 24),
+    },
+    :h => {
+      :desc => "hour",
+      :mult => (60 * 60),
+    },
+    :m => {
+      :desc => "minute",
+      :mult => 60,
+    },
+    :s => {
+      :desc => "second",
+      :mult => 1,
+    }
+  }
+end
+
+# time_message :: int -> string
+def time_message(seconds)
+  parts = [ ]
+
+  s = seconds
+  time_units.each do |key,unit|
+    if (s >= unit[:mult])
+      n = s / unit[:mult]
+      s = s % unit[:mult]
+      parts.push("#{n} #{(n == 1) ? unit[:desc] : (unit[:desc] + 's')}")
+    end
+  end
+
+  return parts.join(', ')
+end
+
+# default_command :: (string, string?) -> string
+def default_command(title, message = nil)
+  command = "notify-send -u critical \"#{title}\""
+  if (!message.nil?)
+    command += " \"#{message}\""
+  end
+  return command
+end
+
+# custom_command = (conf) -> string
+# conf = see return for `parse_args`.
+# All the values in `conf` should be filled.
+def custom_command(conf)
+  parts = [
+    "Start: #{Time.now}",
+    "Delay: #{conf[:delay]} seconds",
+    "Title: #{conf[:title]}",
+    "Message: #{conf[:message]}"
+  ]
+
+  return "echo \"#{parts.join("\n")}\" | #{conf[:command]}"
+end
+
+# Set it.
+set(ARGV)
