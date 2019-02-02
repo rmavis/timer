@@ -51,7 +51,6 @@ end
 # parse_args :: [string] -> conf
 # conf = (hash) will contain these keys:
 #   :delay = (int) the number of seconds to sleep
-#   :time = (string) e.g., "5 seconds"
 #   :title = string?
 #   :message = string?
 #   :command = (string?) the command to run after the delay
