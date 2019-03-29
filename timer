@@ -1,12 +1,15 @@
 #!/usr/bin/env ruby
 
-# This program requires Dunst (https://dunst-project.org/), which
+# On Linux, this program requires Dunst (https://dunst-project.org/), which
 # provides the `notify-send` command.
+#
+# On macOS, this program requires `terminal-notifier` (e.g. obtain via homebrew
+# or rubygems).
 
 # help_message :: void -> string
 def help_message
   <<~MSG
-  timer: sleep a while, then send a notification via `notify-send`.
+  timer: sleep a while, then send a notification via `#{default_command}`.
 
   To specify the delay time, provide arguments in the form
 
@@ -194,9 +197,20 @@ end
 
 # default_command :: (string, string?) -> string
 def default_command(title, message = nil)
-  command = "notify-send -u critical \"#{title}\""
-  if (!message.nil?)
-    command += " \"#{message}\""
+  if OS.linux?
+    command = "notify-send -u critical \"#{title}\""
+    if (!message.nil?)
+      command += " \"#{message}\""
+    end
+  elsif OS.mac?
+    # terminal-notifier uses `Terminal` as the default title when you pass a
+    # message. Title then really is the message. Switch args if both
+    # are supplied.
+    notif_title, notif_message = message.nil? ? [nil, title] : [message, title]
+    command = "terminal-notifier -message \"#{notif_message}\""
+    if (!notif_title.nil?)
+      command += " -title \"#{notif_title}\""
+    end
   end
   return command
 end
